@@ -1,0 +1,101 @@
+name: Track Submission Progress
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Data Structures & Algorithms/**/submission-*.py'
+
+jobs:
+  track-progress:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so we can diff against the previous commit
+
+      - name: Get changed submission files
+        id: changed
+        run: |
+          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} -- 'Data Structures & Algorithms/**/submission-*.py')
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Update issue per problem
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            // how many submissions = which stage
+            const STAGE_MAP = {
+              1: { label: 'stage:day3',  days: 3  },
+              2: { label: 'stage:day5',  days: 5  },
+              3: { label: 'stage:day7',  days: 7  },
+              4: { label: 'stage:day30', days: 30 },
+              // 5 = done, handled separately below
+            };
+
+            const changed = `${{ steps.changed.outputs.files }}`.split('\n').filter(Boolean);
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // figure out which problem folders were touched by this push
+            const problems = new Set();
+            for (const file of changed) {
+              const m = file.match(/^Data Structures & Algorithms\/(.+?)\/submission-\d+\.py$/);
+              if (m) problems.add(m[1]);
+            }
+
+            for (const problem of problems) {
+              const dir = path.join('Data Structures & Algorithms', problem);
+              const files = fs.readdirSync(dir).filter(f => /^submission-\d+\.py$/.test(f));
+              const count = files.length;
+              const title = problem;
+
+              // find an existing open issue with this exact title
+              const search = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${owner}/${repo} type:issue in:title "${title}"`
+              });
+              const issue = search.data.items.find(i => i.title === title);
+
+              if (count >= 5) {
+                // 5th submission -> done, close it, never comes back
+                if (issue) {
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: issue.number,
+                    state: 'closed', labels: ['stage:done']
+                  });
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number: issue.number,
+                    body: `Completed all 5 review cycles (${count} submissions total).`
+                  });
+                }
+                continue;
+              }
+
+              const stage = STAGE_MAP[count];
+              if (!stage) continue; // shouldn't happen, but guards against bad counts
+
+              const dueDate = new Date(Date.now() + stage.days * 86400000).toISOString().slice(0, 10);
+              const body = `<!-- review-due: ${dueDate} -->\nProgress: ${count}/5 submissions completed.`;
+
+              if (!issue) {
+                // first submission for this problem -> create the issue
+                await github.rest.issues.create({ owner, repo, title, body, labels: [stage.label] });
+              } else {
+                // later submission -> advance the stage
+                await github.rest.issues.update({
+                  owner, repo, issue_number: issue.number,
+                  body, labels: [stage.label]
+                });
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: issue.number,
+                  body: `Advanced to ${stage.label} — ${count}/5 submissions completed.`
+                });
+              }
+            }
