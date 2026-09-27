@@ -61,6 +61,17 @@ jobs:
 
                   console.log(problem)
 
-                  console.log(JSON.stringify(searchResults, null, 2))
+
+
+                  const { user } = await github.graphql(
+                    `query($login: String!, $number: Int!) {
+                      user(login: $login) { projectV2(number: $number) { id title } }
+                    }`,
+                    { login: "sabari-qwerty", number: 6 }
+                  );
+                  const projectId = user.projectV2.id;
+
+
+                  console.log(projectId)
 
                   
