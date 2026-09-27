@@ -57,7 +57,7 @@ jobs:
                         }
                       }   `, { searchQuery: title })
                       
-                  const searchResults = searchIssue({title: problem})
+                  const searchResults = await searchIssue({title: problem})
 
                   console.log({searchResults})
 
