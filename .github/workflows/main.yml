@@ -27,5 +27,4 @@ jobs:
       - name: Update issue per problem
         uses: actions/github-script@v7
         with:
-          script: |
-          console.log(context)
+          script: console.log(context)
