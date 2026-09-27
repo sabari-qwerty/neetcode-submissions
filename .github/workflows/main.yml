@@ -56,7 +56,6 @@ jobs:
                           }
                         }
                       }  `, { searchQuery: `repo:/sabari-qwerty/neetcode-submissions in:title "${title}"` })
-                      )
                       
                   const searchResults = await searchIssue({title: problem})
 
