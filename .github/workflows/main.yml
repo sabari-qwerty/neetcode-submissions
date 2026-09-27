@@ -59,6 +59,8 @@ jobs:
                       
                   const searchResults = await searchIssue({title: problem})
 
+                  console.log(problem)
+
                   console.log(JSON.stringify(searchResults, null, 2))
 
                   
