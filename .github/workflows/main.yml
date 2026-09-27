@@ -28,16 +28,14 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-                  const { user } = await github.graphql(
-                    `query($login: String!) {
+                  const result = await github.graphql(
+                    `query($login: String!, $number: Int!) {
                       user(login: $login) {
-                        projectsV2(first: 20) {
-                          nodes { id number title url }
-                        }
+                        projectV2(number: $number) { id title }
                       }
                     }`,
-                    { login: "sabari-qwerty" }
+                    { login: "sabari-qwerty", number: 6 }
                   );
-                  console.log(user.projectsV2.nodes);
+                  console.log(result);
 
                   
