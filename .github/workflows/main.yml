@@ -38,8 +38,10 @@ jobs:
                   
                   const submission_count = submission.split("-")[1]
                   
-                  
+              
                   const neetcode_url = `https://neetcode.io/problems/${problem.trim().toLowerCase().replace(/\s+/g, '-')}/question`
+
+                  const title = ({problemName, repited}) => `${problemName}`
 
                   const searchIssue = async ({title}) => await github.graphql(`query($searchQuery: String!) {
                         search(query: $searchQuery, type: ISSUE, first: 10) {
@@ -55,7 +57,7 @@ jobs:
                         }
                       }   `, { searchQuery: title })
                       
-                  const searchResults = searchIssue({title})
+                  const searchResults = searchIssue({title: problem})
 
                   console.log({searchResults})
 
