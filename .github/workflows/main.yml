@@ -8,6 +8,7 @@ on:
 jobs:
   track-progress:
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       issues: write
       contents: read
