@@ -28,41 +28,6 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-                  const {payload} = context
-                  const {head_commit} = payload
-                  
-                  
-                  const {message} = head_commit
-                  
-                  const [problem, submission] = message.split(":")[1].trim().split(" - ")
-                  
-                  const submission_count = submission.split("-")[1]
-                  
-              
-                  const neetcode_url = `https://neetcode.io/problems/${problem.trim().toLowerCase().replace(/\s+/g, '-')}/question`
-
-                  const title = ({problemName, repited}) => `${problemName}`
-
-                  const searchIssue = async ({title}) => await github.graphql(`query($searchQuery: String!) {
-                        search(query: $searchQuery, type: ISSUE, first: 10) {
-                          nodes {
-                            ... on Issue {
-                              id
-                              number
-                              title
-                              state
-                              url
-                            }
-                          }
-                        }
-                      }  `, { searchQuery: `repo:/sabari-qwerty/neetcode-submissions in:title "${title}"` })
-                      
-                  const searchResults = await searchIssue({title: problem})
-
-                  console.log(problem)
-
-
-
                   const { user } = await github.graphql(
                     `query($login: String!, $number: Int!) {
                       user(login: $login) { projectV2(number: $number) { id title } }
