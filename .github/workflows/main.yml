@@ -38,10 +38,8 @@ jobs:
         with:
           github-token: ${{ secrets.PROJECT_TOKEN }}
           script: |
-            // helper functions
+           // helper functions
 
-            // helper functions
-            
             // search for existing issue by title
             const searchIssue = async ({ title }) =>
               await github.graphql(
@@ -129,7 +127,7 @@ jobs:
             // look up the single-select field's id on the project (needed by setStatus)
             const getStatusFieldId = async ({ projectId, fieldName }) => {
               const result = await github.graphql(
-                `query($projectId: ID!) {
+                `query($projectId: ID!, $fieldName: String!) {
                   node(id: $projectId) {
                     ... on ProjectV2 {
                       field(name: $fieldName) {
@@ -140,7 +138,7 @@ jobs:
                     }
                   }
                 }`,
-                { projectId },
+                { projectId, fieldName },
               );
               return result.node.field.id;
             };
