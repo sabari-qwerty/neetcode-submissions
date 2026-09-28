@@ -9,17 +9,21 @@
 // The daily schedule moves a card to status:due once its review date arrives.
 // Submits made before the review date are ignored.
 
-const PROJECT_ID = "PVT_kwHOBysHk84BkvcW";
+// the board is looked up by owner + number (github.com/users/sabari-qwerty/projects/6)
+// and its title is checked, so the workflow can never touch a different project.
+// Column option ids are resolved by name at runtime.
+const PROJECT_NUMBER = 6;
+const PROJECT_TITLE = "LeetCode Review Cycle";
 const STATUS_FIELD = "Status";
 
 const STAGES = [
-  { name: "stage:day3", optionId: "61e4505c", days: 3 },
-  { name: "stage:day5", optionId: "47fc9ee4", days: 5 },
-  { name: "stage:day7", optionId: "df73e18b", days: 7 },
-  { name: "stage:day30", optionId: "98236657", days: 30 },
+  { name: "stage:day3", days: 3 },
+  { name: "stage:day5", days: 5 },
+  { name: "stage:day7", days: 7 },
+  { name: "stage:day30", days: 30 },
 ];
-const DONE = { name: "stage:done", optionId: "c40ffaac" };
-const DUE = { name: "status:due", optionId: "f75ad846" };
+const DONE = { name: "stage:done" };
+const DUE = { name: "status:due" };
 const TOTAL_REVIEWS = STAGES.length + 1; // 5th submit finishes the cycle
 
 // dates are YYYY-MM-DD in IST so they match the local day
@@ -117,39 +121,53 @@ module.exports = ({ github, context, core }) => {
       { issueId },
     );
 
-  // addProjectV2ItemById is idempotent: re-adding returns the existing item
-  const addToProject = async (contentId) =>
-    (
-      await github.graphql(
-        `mutation($projectId: ID!, $contentId: ID!) {
-          addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
-            item { id }
-          }
-        }`,
-        { projectId: PROJECT_ID, contentId },
-      )
-    ).addProjectV2ItemById.item.id;
-
-  let statusFieldId = null;
-  const getStatusFieldId = async () => {
-    if (statusFieldId) return statusFieldId;
+  // resolve the project id, Status field id and column option ids once per run
+  let project = null;
+  const getProject = async () => {
+    if (project) return project;
     const result = await github.graphql(
-      `query($projectId: ID!, $fieldName: String!) {
-        node(id: $projectId) {
-          ... on ProjectV2 {
-            field(name: $fieldName) { ... on ProjectV2SingleSelectField { id } }
+      `query($login: String!, $number: Int!, $fieldName: String!) {
+        user(login: $login) {
+          projectV2(number: $number) {
+            id
+            title
+            field(name: $fieldName) {
+              ... on ProjectV2SingleSelectField { id options { id name } }
+            }
           }
         }
       }`,
-      { projectId: PROJECT_ID, fieldName: STATUS_FIELD },
+      { login: owner, number: PROJECT_NUMBER, fieldName: STATUS_FIELD },
     );
-    statusFieldId = result.node.field.id;
-    return statusFieldId;
+    const p = result.user.projectV2;
+    if (!p || p.title !== PROJECT_TITLE) {
+      throw new Error(`Project #${PROJECT_NUMBER} is "${p && p.title}", expected "${PROJECT_TITLE}"`);
+    }
+    if (!p.field) throw new Error(`Project "${PROJECT_TITLE}" has no "${STATUS_FIELD}" field`);
+    project = {
+      id: p.id,
+      fieldId: p.field.id,
+      options: Object.fromEntries(p.field.options.map((o) => [o.name, o.id])),
+    };
+    for (const stage of [...STAGES, DONE, DUE]) {
+      if (!project.options[stage.name]) {
+        throw new Error(`"${STATUS_FIELD}" has no "${stage.name}" option in "${PROJECT_TITLE}"`);
+      }
+    }
+    return project;
   };
 
-  // put the issue on the board (if needed) and move it to the given column
+  // put the issue on the board (addProjectV2ItemById is idempotent) and move it to the given column
   const setStage = async (contentId, stage) => {
-    const itemId = await addToProject(contentId);
+    const { id: projectId, fieldId, options } = await getProject();
+    const added = await github.graphql(
+      `mutation($projectId: ID!, $contentId: ID!) {
+        addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+          item { id }
+        }
+      }`,
+      { projectId, contentId },
+    );
     await github.graphql(
       `mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
         updateProjectV2ItemFieldValue(input: {
@@ -159,7 +177,7 @@ module.exports = ({ github, context, core }) => {
           value: { singleSelectOptionId: $optionId }
         }) { projectV2Item { id } }
       }`,
-      { projectId: PROJECT_ID, itemId, fieldId: await getStatusFieldId(), optionId: stage.optionId },
+      { projectId, itemId: added.addProjectV2ItemById.item.id, fieldId, optionId: options[stage.name] },
     );
   };
 
