@@ -1,5 +1,13 @@
 class Solution:
     def hasDuplicate(self, nums: List[int]) -> bool:
 
+        cache = set()
 
-       return len(nums) != len(set(nums)) 
+
+        for i in nums: 
+
+            if i in cache: return True
+
+            cache.add(i)
+
+        return False
