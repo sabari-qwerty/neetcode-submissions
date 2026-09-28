@@ -19,6 +19,13 @@
 
 ---
 
+## Review cycle automation
+
+Every problem you solve becomes a GitHub issue that moves across the **LeetCode Review Cycle** project board
+(day 3 → day 5 → day 7 → day 30 → done). See **[docs/review-cycle.md](docs/review-cycle.md)** for how it works and how to set it up.
+
+---
+
 ## Repository structure
 
 Solutions are organized by topic folder, then problem ID. Each submission is stored as a separate file:
