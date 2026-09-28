@@ -38,34 +38,247 @@ jobs:
         with:
           github-token: ${{ secrets.PROJECT_TOKEN }}
           script: |
-            const changedFiles = `${{ steps.changed.outputs.files }}`
-              .split('\n')
-              .filter(Boolean);
+            // helper functions
 
-            const result = await github.graphql(
-              `query($login: String!, $number: Int!) {
-                user(login: $login) {
-                  projectV2(number: $number) {
-                    id
-                    fields(first: 20) {
-                      nodes {
+            // helper functions
+            
+            // search for existing issue by title
+            const searchIssue = async ({ title }) =>
+              await github.graphql(
+                `query($searchQuery: String!) {
+                search(query: $searchQuery, type: ISSUE, first: 10) {
+                    nodes {
+                    ... on Issue {
+                        id
+                        number
+                        title
+                        state
+                        url
+                    }
+                    }
+                }
+                }  `,
+                {
+                  searchQuery: `repo:/sabari-qwerty/neetcode-submissions in:title "${title}"`,
+                },
+              );
+            
+            // create new issue
+            const createIssue = async ({ repoId, title, body }) =>
+              await github.graphql(
+                `mutation($repoId: ID!, $title: String!, $body: String!) {
+                createIssue(input: { repositoryId: $repoId, title: $title, body: $body }) {
+                    issue { id number url }
+                }
+                }`,
+                { repoId, title, body },
+              );
+            
+            //  update existing issue
+            const updateIssue = async ({ issueId, title, body }) =>
+              await github.graphql(
+                `mutation($issueId: ID!, $title: String!, $body: String!) {
+                updateIssue(input: { id: $issueId, title: $title, body: $body }) {
+                    issue { id number url }
+                }
+                }`,
+                { issueId, title, body },
+              );
+            
+            // close existing issue
+            const closeIssue = async ({ issueId }) =>
+              await github.graphql(
+                `mutation($issueId: ID!) {
+                closeIssue(input: { issueId: $issueId }) {
+                issue { id number state }
+                }
+            }`,
+                { issueId },
+              );
+            
+            //  add to project board
+            // NOTE: addProjectV2ItemById is idempotent - calling it again with an
+            // issue that is already on the board just returns the existing item,
+            // so it's safe to reuse this for both "new" and "existing" issues.
+            const addToProject = async ({ projectId, contentId }) =>
+              await github.graphql(
+                `mutation($projectId: ID!, $contentId: ID!) {
+                  addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+                    item { id }
+                  }
+                }`,
+                { projectId, contentId },
+              );
+            
+            //  update issue status
+            const setStatus = async ({ projectId, itemId, fieldId, optionId }) =>
+              await github.graphql(
+                `mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId
+                    itemId: $itemId
+                    fieldId: $fieldId
+                    value: { singleSelectOptionId: $optionId }
+                  }) {
+                    projectV2Item { id }
+                  }
+                }`,
+                { projectId, itemId, fieldId, optionId },
+              );
+            
+            // look up the single-select field's id on the project (needed by setStatus)
+            const getStatusFieldId = async ({ projectId, fieldName }) => {
+              const result = await github.graphql(
+                `query($projectId: ID!) {
+                  node(id: $projectId) {
+                    ... on ProjectV2 {
+                      field(name: $fieldName) {
                         ... on ProjectV2SingleSelectField {
                           id
-                          name
-                          options {
-                            id
-                            name
-                          }
                         }
                       }
                     }
                   }
-                }
-              }`,
-              { login: "sabari-qwerty", number: 6 }
-            );
-
-            console.log(JSON.stringify(result, null, 2));
-            console.log("Changed files:", changedFiles);
-
-            // TODO: match changedFiles to project items and update their status field
+                }`,
+                { projectId },
+              );
+              return result.node.field.id;
+            };
+            
+            //  update next revise date based on submission count
+            const findNextDate = {
+              0: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+              1: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+              2: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+              3: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            };
+            
+            const { payload } = context;
+            const { head_commit } = payload;
+            
+            const { message } = head_commit;
+            
+            const [problem, submission] = message.split(":")[1].trim().split(" - ");
+            
+            const submission_count = Number(submission.split("-")[1]);
+            
+            const neetcode_url = `https://neetcode.io/problems/${problem.trim().toLowerCase().replace(/\s+/g, "-")}/question`;
+            
+            const title = ({ problemName, repited }) => `${problemName}`;
+            
+            const searchResults = await searchIssue({ title: problem });
+            
+            const body = `**Problem:** ${problem}\n**Submission Count:** ${submission_count}\n**Neetcode URL:** ${neetcode_url}\n **Next revise date:** ${findNextDate[submission_count] || "N/A"}`;
+            
+            const projectId = "PVT_kwHOBysHk84BkvcW";
+            
+            const status = {
+              "status:due": {
+                id: "f75ad846",
+                name: "status:due",
+              },
+              "stage:day3": {
+                id: "61e4505c",
+                name: "stage:day3",
+              },
+              "stage:day5": {
+                id: "47fc9ee4",
+                name: "stage:day5",
+              },
+              "stage:day7": {
+                id: "df73e18b",
+                name: "stage:day7",
+              },
+            
+              "stage:day30": {
+                id: "98236657",
+                name: "stage:day30",
+              },
+              "stage:done": { id: "c40ffaac", name: "stage:done" },
+            };
+            
+            // map how many times a problem has been submitted to the stage option
+            // that should be shown on the board. 4+ submissions means "mastered" / done.
+            const stageForCount = (count) => {
+              const order = ["stage:day3", "stage:day5", "stage:day7", "stage:day30"];
+              return order[count] ? status[order[count]] : status["stage:done"];
+            };
+            
+            const statusFieldId = await getStatusFieldId({
+              projectId,
+              fieldName: "Status",
+            });
+            
+            if (searchResults["search"]["nodes"].length == 0) {
+              //  create new issue if no existing issue found
+            
+              const issue = await createIssue({
+                repoId: context.repo.node_id,
+                title: problem,
+                body: body,
+              });
+            
+              const issueNodeId = issue.createIssue.issue.id;
+            
+              const itemResult = await addToProject({
+                projectId: projectId,
+                contentId: issueNodeId,
+              });
+            
+              const itemId = itemResult.addProjectV2ItemById.item.id;
+              const stageOption = stageForCount(submission_count);
+            
+              await setStatus({
+                projectId,
+                itemId,
+                fieldId: statusFieldId,
+                optionId: stageOption.id,
+              });
+            } else if (submission_count > 4) {
+              //  close existing issue if submission count is greater than 4
+            
+              const existingIssue = searchResults["search"]["nodes"][0];
+            
+              if (existingIssue.state !== "CLOSED") {
+                await closeIssue({ issueId: existingIssue.id });
+              }
+            
+              // make sure the board reflects "done" even if it wasn't already
+              const itemResult = await addToProject({
+                projectId: projectId,
+                contentId: existingIssue.id,
+              });
+              const itemId = itemResult.addProjectV2ItemById.item.id;
+            
+              await setStatus({
+                projectId,
+                itemId,
+                fieldId: statusFieldId,
+                optionId: status["stage:done"].id,
+              });
+            } else {
+              // update existing issue if found
+            
+              const existingIssue = searchResults["search"]["nodes"][0];
+            
+              await updateIssue({
+                issueId: existingIssue.id,
+                title: problem,
+                body: body,
+              });
+            
+              // re-add is a no-op if it's already on the board, and gives us the item id
+              const itemResult = await addToProject({
+                projectId: projectId,
+                contentId: existingIssue.id,
+              });
+              const itemId = itemResult.addProjectV2ItemById.item.id;
+              const stageOption = stageForCount(submission_count);
+            
+              await setStatus({
+                projectId,
+                itemId,
+                fieldId: statusFieldId,
+                optionId: stageOption.id,
+              });
+            }
