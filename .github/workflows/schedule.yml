@@ -1,42 +1,23 @@
 name: Flag Due Reviews
 on:
   schedule:
-    - cron: '0 6 * * *'   # runs daily at 06:00 UTC
+    - cron: '30 18 * * *'   # daily at 00:00 IST
   workflow_dispatch:        # lets you trigger it manually to test
 
 jobs:
   flag-due:
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       issues: write
+      contents: read
     steps:
-      - uses: actions/github-script@v8
+      - uses: actions/checkout@v4
+
+      - name: Move due reviews to status:due
+        uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
           script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const today = new Date().toISOString().slice(0, 10);
-
-            // pull every open issue (paginated automatically)
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
-              owner, repo, state: 'open', per_page: 100
-            });
-
-            for (const issue of issues) {
-              if (issue.pull_request) continue; // skip PRs, only issues matter here
-
-              const match = issue.body && issue.body.match(/<!--\s*review-due:\s*(\d{4}-\d{2}-\d{2})\s*-->/);
-              if (!match) continue; // no hidden due date found, skip
-
-              const dueDate = match[1];
-              const alreadyFlagged = issue.labels.some(
-                l => (typeof l === 'string' ? l : l.name) === 'status:due'
-              );
-
-              if (dueDate <= today && !alreadyFlagged) {
-                await github.rest.issues.addLabels({
-                  owner, repo, issue_number: issue.number,
-                  labels: ['status:due']
-                });
-              }
-            }
+            const cycle = require('./.github/scripts/review-cycle.js')({ github, context, core });
+            await cycle.flagDueReviews();
